@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<!-- saved from url=(0049)https://cm3w1mpus000z01yohwjz4l83.createany.site/ -->
+<html lang="es"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Generador de Tablas de Casos</title>
+    <script src="openai.global.js"></script>
+    <link rel="stylesheet" href="all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .input-section {
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+
+        .error {
+            color: red;
+            margin: 10px 0;
+        }
+
+        .loading {
+            display: none;
+            margin: 10px 0;
+            color: #666;
+        }
+
+        .section-header {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #4CAF50;
+        }
+
+        .info-table, .stages-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        .info-table th, .info-table td,
+        .stages-table th, .stages-table td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        .info-table th {
+            background-color: #f8f8f8;
+            width: 200px;
+        }
+
+        .stages-table th {
+            background-color: #f8f8f8;
+        }
+
+        .current-stage {
+            background-color: #fff3cd;
+        }
+
+        .completed-stage {
+            background-color: #d4edda;
+        }
+
+        .pending-stage {
+            background-color: #f8f9fa;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+        }
+
+        #sourcesContainer {
+            display: none;
+            margin-top: 20px;
+        }
+
+        #sources {
+            margin-top: 10px;
+        }
+
+        #sources ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #sources li {
+            margin-bottom: 5px;
+        }
+
+        #sources a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        #sources a:hover {
+            text-decoration: underline;
+        }
+
+        #exportSettings {
+            display: none;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Generador de Tablas de Casos Judiciales</h1>
+        
+        <div class="input-section">
+            <input type="text" id="caseInput" placeholder="Ingrese el nombre del caso">
+            <button id="generateButton" onclick="generateCaseTable()">Generar Tabla</button>
+        </div>
+
+        <div id="error" class="error"></div>
+        <div id="loading" class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Generando tabla...
+        </div>
+
+        <div id="output"></div>
+
+        <div id="sourcesContainer">
+            <div class="section-header">Fuentes de Información</div>
+            <div id="sources"></div>
+        </div>
+
+        <div id="exportSettings">
+            <div class="section-header">Opciones de Exportación</div>
+            <button onclick="exportToJSON()">Exportar a JSON</button>
+        </div>
+    </div>
+
+    <script>
+        let currentCaseData = null;
+        let caseSources = [];
+        let isGenerating = false;
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        function clearError() {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = '';
+            errorDiv.style.display = 'none';
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+            document.getElementById('sources').innerHTML = '';
+            document.getElementById('sourcesContainer').style.display = 'none';
+            document.getElementById('exportSettings').style.display = 'none';
+        }
+
+        async function generateCaseTable() {
+            const caseInput = document.getElementById('caseInput').value.trim();
+            const generateButton = document.getElementById('generateButton');
+
+            if (!caseInput) {
+                showError('Por favor ingrese el nombre del caso');
+                return;
+            }
+
+            if (isGenerating) return;
+
+            isGenerating = true;
+            generateButton.disabled = true;
+            showLoading(true);
+            clearError();
+            clearOutput();
+
+            try {
+                const openai = await window.getOpenAIInstance();
+                
+                const searchResponse = await fetch(`https://serper.api.createany.ai/search?q=${encodeURIComponent(caseInput + ' caso judicial argentina')}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!searchResponse.ok) {
+                    throw new Error('Error en la búsqueda de información');
+                }
+
+                const searchData = await searchResponse.json();
+                caseSources = searchData.organic?.slice(0, 5) || [];
+
+                if (caseSources.length === 0) {
+                    throw new Error('No se encontró información sobre el caso');
+                }
+
+                const prompt = `
+                    Por favor, genera un JSON válido con la siguiente estructura para el caso "${caseInput}":
+                    {
+                        "fundamentalInfo": {
+                            "Nombre del Caso": "string",
+                            "Fecha Clave": "string",
+                            "Lugar": "string",
+                            "Contexto": "string",
+                            "Estado Actual": "string",
+                            "Observaciones": "string"
+                        },
+                        "stages": [
+                            {
+                                "name": "Investigación",
+                                "description": "string",
+                                "status": "string",
+                                "progress": "number"
+                            },
+                            {
+                                "name": "Preparación para Juicio",
+                                "description": "string",
+                                "status": "string",
+                                "progress": "number"
+                            },
+                            {
+                                "name": "Juicio Oral",
+                                "description": "string",
+                                "status": "string",
+                                "progress": "number"
+                            },
+                            {
+                                "name": "Resolución Final",
+                                "description": "string",
+                                "status": "string",
+                                "progress": "number"
+                            }
+                        ]
+                    }
+
+                    Usa la siguiente información como referencia: ${JSON.stringify(caseSources.slice(0, 3))}
+                    
+                    Importante: Asegúrate de que la respuesta sea un JSON válido y siga exactamente esta estructura.
+                `;
+
+                const completion = await openai.chat.completions.create({
+                    model: "gpt-4",
+                    messages: [{ 
+                        role: "user", 
+                        content: prompt 
+                    }]
+                });
+
+                let data;
+                try {
+                    const responseContent = completion.choices[0].message.content.trim();
+                    const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) {
+                        throw new Error('No se encontró un objeto JSON válido en la respuesta');
+                    }
+                    data = JSON.parse(jsonMatch[0]);
+                    
+                    if (!data.fundamentalInfo || !data.stages || !Array.isArray(data.stages)) {
+                        throw new Error('La estructura del JSON no es válida');
+                    }
+                } catch (e) {
+                    console.error('Error parsing JSON:', e);
+                    console.error('Raw response:', completion.choices[0].message.content);
+                    throw new Error('Error al procesar la respuesta del modelo: ' + e.message);
+                }
+
+                currentCaseData = data;
+
+                let fundamentalTable = `
+                    <div class="section-header">Información Fundamental</div>
+                    <table class="info-table">
+                        <tbody>`;
+                
+                Object.entries(data.fundamentalInfo).forEach(([key, value]) => {
+                    fundamentalTable += `
+                        <tr>
+                            <th>${escapeHtml(key)}</th>
+                            <td>${escapeHtml(value)}</td>
+                        </tr>`;
+                });
+                fundamentalTable += '</tbody></table>';
+
+                let stagesTable = `
+                    <div class="section-header">Etapas del Proceso Judicial</div>
+                    <table class="stages-table">
+                        <thead>
+                            <tr>
+                                <th>Aspecto</th>`;
+                
+                data.stages.forEach(stage => {
+                    stagesTable += `<th>${escapeHtml(stage.name)}</th>`;
+                });
+                
+                stagesTable += `</tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Descripción</strong></td>`;
+                data.stages.forEach(stage => {
+                    stagesTable += `<td>${escapeHtml(stage.description)}</td>`;
+                });
+                
+                stagesTable += `</tr>
+                            <tr>
+                                <td><strong>Estado</strong></td>`;
+                data.stages.forEach(stage => {
+                    const stageClass = stage.status === 'En curso' ? 'current-stage' : 
+                                     stage.status === 'Finalizada' ? 'completed-stage' : 'pending-stage';
+                    stagesTable += `<td class="${stageClass}">${escapeHtml(stage.status)}</td>`;
+                });
+                
+                stagesTable += `</tr>
+                            <tr>
+                                <td><strong>Progreso</strong></td>`;
+                data.stages.forEach(stage => {
+                    const progress = Math.min(Math.max(0, parseInt(stage.progress) || 0), 100);
+                    stagesTable += `
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progress}%"></div>
+                            </div>
+                            ${progress}%
+                        </td>`;
+                });
+                stagesTable += '</tr></tbody></table>';
+
+                document.getElementById('output').innerHTML = fundamentalTable + stagesTable;
+                
+                let sourcesHTML = '<ul>';
+                caseSources.forEach(source => {
+                    if (source.link && source.title) {
+                        sourcesHTML += `<li><a href="${escapeHtml(source.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a></li>`;
+                    }
+                });
+                sourcesHTML += '</ul>';
+                
+                document.getElementById('sources').innerHTML = sourcesHTML;
+                document.getElementById('sourcesContainer').style.display = 'block';
+                document.getElementById('exportSettings').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError(error.message || 'Error al generar la tabla. Por favor intente nuevamente.');
+            } finally {
+                showLoading(false);
+                isGenerating = false;
+                generateButton.disabled = false;
+            }
+        }
+
+        function escapeHtml(unsafe) {
+            if (!unsafe) return '';
+            return unsafe
+                .toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function exportToJSON() {
+            if (!currentCaseData) {
+                showError('No hay datos para exportar');
+                return;
+            }
+            
+            // Create a Blob with the JSON data
+            const jsonString = JSON.stringify(currentCaseData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'caso_judicial.json';
+            
+            // Trigger download
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        // Add event listener for Enter key
+        document.getElementById('caseInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                generateCaseTable();
+            }
+        });
+    </script>
+
+</body></html>
